@@ -7,6 +7,7 @@ from .matchers import matchers
 import time
 from .laplacian_blending import laplacian_blending
 from .seam_finder import find_seam
+from .light_compensation import *
 
 
 class Stitch:
@@ -27,6 +28,7 @@ class Stitch:
         self.masks = []
 
     def prepare_lists(self):
+        print("Number of images : %d" % self.count)
         self.centerIdx = self.count / 2
         # self.center_im = self.images[int(self.centerIdx)]
         for i in range(self.count):
@@ -34,10 +36,15 @@ class Stitch:
                 self.left_list.append(self.images[i])
             else:
                 self.right_list.append(self.images[i])
+        print("Image lists prepared")
 
-    def leftshift(self, blender="average", feature="BRISK"):
+    def leftshift(self, blender="average", feature="BRISK", light="grey"):
         a = self.left_list[0]
+        if light != "":
+            a = self.lightCompensation(a, method=light)
         for b in self.left_list[1:]:
+            if light != "":
+                b = self.lightCompensation(b, method=light)
             H, matches = self.matcher_obj.match(a, b, feature, 'left')
             self.matches.append(matches)
             xh = np.linalg.inv(H)
@@ -66,8 +73,18 @@ class Stitch:
                 tm, _ = self.averageBlender(tmp, base, dsize, "left")
 
             if blender == "laplacian":
-                mask = np.ones_like(a, dtype=np.float32)
-                mask = cv2.warpPerspective(mask, trans.dot(xh), dsize)
+                mask1 = np.logical_and(np.ones_like(tmp), tmp)
+                mask2 = np.logical_and(np.ones_like(base), base)
+                overlap = np.logical_and(mask1, mask2)
+                overlap = np.float32(overlap)
+                min_indy, max_indy, min_indx, max_indx = self.findCorner(overlap)
+
+                mask3 = np.float32(np.uint8(mask1) - overlap)
+                overlap = np.float32(overlap)
+
+                mask = self.getMask(overlap, min_indx, max_indx, min_indy, max_indy)
+                mask += mask3
+
                 tmp = self.laplacianBlender(tmp, base, mask, 4)
 
             if blender == "laplacianWithGraphCut":
@@ -83,17 +100,26 @@ class Stitch:
                 overlap = np.float32(overlap)
 
                 mask = self.getPathMask(path, overlap, min_indy, max_indy, min_indx, max_indx)
-
-                self.masks.append(np.uint8(np.clip(mask, 0, 255)))
                 mask += mask3
 
                 tmp = self.laplacianBlender(tmp, base, mask, 4)
+                graphCut = self.drawPoint(tmp, path, min_indy, max_indy)
+                graphCut = self.culling(graphCut)
+                self.masks.append(graphCut)
 
             if blender == "middle":
                 tmp = self.middleBlender(tmp, base, dsize, "left")
 
             if blender == "normal":
-                tmp = self.mix_and_match(base, tmp)
+                mask1 = np.logical_and(np.ones_like(tmp), tmp)
+                mask2 = np.logical_and(np.ones_like(base), base)
+                overlap = np.logical_and(mask1, mask2)
+                mask1 = np.uint8(mask1) - np.uint8(overlap)
+                mask2 = np.uint8(mask2)
+
+                base = base * mask2
+                tmp = mask1 * tmp
+                tmp += base
 
             tmp = self.culling(tmp)
             self.progresses.append(tmp)
@@ -101,8 +127,10 @@ class Stitch:
 
         self.leftImage = a
 
-    def rightshift(self, blender="average", feature="BRISK"):
+    def rightshift(self, blender="average", feature="BRISK", light="grey"):
         for each in self.right_list:
+            if light != "":
+                each = self.lightCompensation(each, method=light)
             H, matches = self.matcher_obj.match(self.leftImage, each, feature, 'right')
             self.matches.append(matches)
             txyz = np.dot(H, np.array([each.shape[1], each.shape[0], 1]))
@@ -117,9 +145,19 @@ class Stitch:
                 tmp, _ = self.averageBlender(tmp, base, dsize, "right")
 
             if blender == "laplacian":
-                mask = np.ones_like(each, dtype=np.float32)
-                mask = cv2.warpPerspective(mask, H, dsize)
-                tmp = self.laplacianBlender(tmp, base, mask, 4)
+                mask2 = np.logical_and(np.ones_like(tmp), tmp)
+                mask1 = np.logical_and(np.ones_like(base), base)
+                overlap = np.logical_and(mask1, mask2)
+                overlap = np.float32(overlap)
+                min_indy, max_indy, min_indx, max_indx = self.findCorner(overlap)
+
+                mask3 = np.float32(np.uint8(mask1) - overlap)
+                overlap = np.float32(overlap)
+
+                mask = self.getMask(overlap, min_indx, max_indx, min_indy, max_indy)
+                mask += mask3
+
+                tmp = self.laplacianBlender(base, tmp, mask, 4)
 
             if blender == "laplacianWithGraphCut":
                 mask1 = np.logical_and(np.ones_like(base), base)
@@ -133,8 +171,7 @@ class Stitch:
                 overlap = np.float32(overlap)
 
                 mask = self.getPathMask(path, overlap, min_indy, max_indy, min_indx, max_indx)
-                self.masks.append(np.uint8(np.clip(mask, 0, 255)))
-
+                self.masks.append(mask)
                 mask += mask3
 
                 tmp = self.laplacianBlender(base, tmp, mask, 4)
@@ -143,7 +180,15 @@ class Stitch:
                 tmp = self.middleBlender(tmp, base, dsize, "right")
 
             if blender == "normal":
-                tmp = self.mix_and_match(base, tmp)
+                mask1 = np.logical_and(np.ones_like(tmp), tmp)
+                mask2 = np.logical_and(np.ones_like(base), base)
+                overlap = np.logical_and(mask1, mask2)
+                mask1 = np.uint8(mask1) - np.uint8(overlap)
+                mask2 = np.uint8(mask2)
+
+                base = base * mask2
+                tmp = mask1 * tmp
+                tmp += base
 
             tmp = self.culling(tmp)
             self.progresses.append(tmp)
@@ -168,7 +213,6 @@ class Stitch:
                         warpedImage[j, i] = [0, 0, 0]
                     else:
                         if np.array_equal(warpedImage[j, i], [0, 0, 0]):
-                            # print "PIXEL"
                             warpedImage[j, i] = leftImage[j, i]
                         else:
                             if not np.array_equal(leftImage[j, i], [0, 0, 0]):
@@ -180,8 +224,6 @@ class Stitch:
                                 warpedImage[j, i] = [bl, gl, rl]
                 except:
                     pass
-        # cv2.imshow("waRPED mix", warpedImage)
-        # cv2.waitKey()
         return warpedImage
 
     def trim_left(self):
@@ -439,18 +481,47 @@ class Stitch:
 
         return tmp
 
+    def getMask(self, mask, left, right, top, bottom):
+        for i in range(left, right + 1):
+            for j in range(top, bottom + 1):
+                if mask[j, i].any():
+                    baseImgLen = float(abs(i - right))
+                    tmpImgLen = float(abs(i - left))
+                    alpha = baseImgLen / (baseImgLen + tmpImgLen)
+                    mask[j, i] = alpha
+
+        return mask
+
+    def lightCompensation(self, img, method="grey"):
+        methods = {
+            "grey": grey_world,
+            "hist": hist_equalization,
+            "MSRCR": MSRCR,
+            "AWB": white_balance,
+            "ACE": automatic_color_equalization
+        }
+
+        return methods[method](img)
+
+    def drawPoint(self, tmp, path, min_indy, max_indy):
+        img = tmp.copy()
+        y = min_indy
+        for x in path:
+            cv2.circle(img, (x, y), radius=1, color=(0, 255, 255))
+            y += 1
+        return img
 
 if __name__ == '__main__':
     try:
         args = sys.argv[1]
     except:
-        args = "txtlists/files3.txt"
+        args = "txtlists/files1.txt"
     finally:
         print("Parameters : ", args)
     s = Stitch(args)
-    s.leftshift(blender="laplacianWithGraphCut")
-    s.rightshift(blender="laplacianWithGraphCut")
+    s.leftshift(blender="normal", light="")
+    s.rightshift(blender="normal", light="")
     print("done")
-    cv2.imwrite("test35.jpg", s.leftImage)
+    cv2.imwrite("normal.jpg", s.leftImage)
     print("image written")
     cv2.destroyAllWindows()

@@ -4,12 +4,14 @@ Multiple image stitching sample
 Show results of image stitching using either advanced `OpenCV Stitcher` API or some low-level APIs along
 with self-implemented features (e.g., Laplacian Pyramid Blending)
 """
+from PIL import Image
 from typing import Dict
 import streamlit as st
 import numpy as np
 import time
 import cv2
 
+import doc
 import Stitcher
 import OCStitcher
 import OpenCVStitcher
@@ -39,11 +41,45 @@ def main():
     st.title("Multiple Image Stitching")
     st.sidebar.info(__doc__)
     st.sidebar.header('Navigation')
-    nav = st.sidebar.radio("Go to", ('Self-implemented Stitcher', 'OpenCV Stitcher API',
-                                     'OpenCV Advanced APIs', 'Doc'))
+    nav = st.sidebar.radio(
+        "Go to",
+        ('Self-implemented Stitcher', 'OpenCV Stitcher API', 'OpenCV Advanced APIs', 'Doc')
+    )
 
     if nav == 'Doc':
-        pass
+        st.sidebar.header('Document Content')
+        doc_nav = st.sidebar.radio(
+            "Section",
+            ('Best Seam', 'Blending', 'Illumination Compensation')
+        )
+        if doc_nav == 'Best Seam':
+            st.markdown(doc.best_seam)
+            graph_cut = Image.open("doc/img/graphcut.png")
+            st.image(graph_cut, use_column_width=True, caption='Graph Cut')
+        elif doc_nav == 'Blending':
+            st.markdown(doc.direct_blending)
+            normal = Image.open("doc/img/normal.png")
+            st.image(normal, use_column_width=True, caption='Direct Blending')
+            st.markdown(doc.middle_line_blending)
+            middle = Image.open("doc/img/middle.png")
+            st.image(middle, use_column_width=True, caption='Middle Line Blinding')
+            st.markdown(doc.weighted_average_blending)
+            average = Image.open("doc/img/average.png")
+            st.image(average, use_column_width=True, caption='Middle Line Blinding')
+            st.markdown(doc.laplacian_blending1)
+            pyramid = Image.open("doc/img/拉普拉斯金字塔.png")
+            st.image(pyramid, use_column_width=True, caption='Laplacian Pyramid')
+            st.markdown(doc.laplacian_blending2)
+            laplacian = Image.open('doc/img/laplacian.png')
+            st.image(laplacian, use_column_width=True, caption='Laplacian Blending')
+            st.markdown(doc.laplacian_blending3)
+            laplacian_graph_cut = Image.open("doc/img/laplacianWithGraphCut.png")
+            st.image(laplacian_graph_cut, use_column_width=True, caption='Laplacian Blending with Graph Cut')
+        else:
+            st.markdown(doc.illumination_compensation)
+            retinex = Image.open('doc/img/retinex.png')
+            st.image(retinex, caption='Retinex')
+            st.markdown(doc.illumination_compensation2)
     else:
         result = st.file_uploader("Upload your images", type=FILE_TYPES)
         if result:
@@ -88,9 +124,13 @@ def main():
                     "Select a blend method",
                     ('laplacian', 'laplacianWithGraphCut','average', 'middle', 'normal')
                 )
+                light_compensation = st.sidebar.selectbox(
+                    "Select a light compensation method",
+                    ('grey', 'hist', 'MSRCR', 'AWB')
+                )
                 s = Stitcher.Stitch([cv2_read_img(key) for key in static_store.keys()])
-                s.leftshift(feature=feature, blender=blender)
-                s.rightshift(feature=feature, blender=blender)
+                s.leftshift(feature=feature, blender=blender, light=light_compensation)
+                s.rightshift(feature=feature, blender=blender, light=light_compensation)
                 matches = []
                 progresses = []
                 masks = []

@@ -28,7 +28,7 @@ def find_seam(left_img, right_img, min_indy, max_indy, min_indx, max_indx, is_de
     for i in range(min_indy, max_indy + 1):
         # boundary process
         lefts_index = paths[-1, :] - 1
-        lefts_index[lefts_index < 0] = 0
+        lefts_index[lefts_index < 0] = min_indx
         rights_index = paths[-1, :] + 1
         rights_index[rights_index > max_indx - 1] = max_indx - 1
         mids_index = paths[-1, :]
