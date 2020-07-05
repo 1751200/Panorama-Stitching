@@ -1,1 +1,1 @@
-from Stitcher.Pano import Stitch
+from Stitcher.pano import Stitch
