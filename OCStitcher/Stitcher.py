@@ -510,4 +510,3 @@ def main():
         cv.waitKey()
 
     print("Done")
-

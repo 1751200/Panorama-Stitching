@@ -174,7 +174,7 @@ def averageBlender(self, tmp, base, dsize, direction, mask=None):
     return tmp, mask
 ```'''
 
-laplacian_blending1 = r'''## Weighted Average Blending
+laplacian_blending1 = r'''## Laplacian Pyramid Blending
 
 Based on the left and right boundary points of the coincident area, the weight transform `1.0` to `0.0` from left to 
 right.

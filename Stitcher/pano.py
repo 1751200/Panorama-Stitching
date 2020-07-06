@@ -171,10 +171,13 @@ class Stitch:
                 overlap = np.float32(overlap)
 
                 mask = self.getPathMask(path, overlap, min_indy, max_indy, min_indx, max_indx)
-                self.masks.append(mask)
+                # self.masks.append(mask)
                 mask += mask3
 
                 tmp = self.laplacianBlender(base, tmp, mask, 4)
+                graphCut = self.drawPoint(tmp, path, min_indy, max_indy)
+                graphCut = self.culling(graphCut)
+                self.masks.append(graphCut)
 
             if blender == "middle":
                 tmp = self.middleBlender(tmp, base, dsize, "right")

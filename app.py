@@ -2,7 +2,7 @@
 Multiple image stitching sample
 ===========================
 Show results of image stitching using either advanced `OpenCV Stitcher` API or some low-level APIs along
-with self-implemented features (e.g., Laplacian Pyramid Blending)
+with self-implemented features (e.g., Laplacian Pyramid Blending and Light Compensation)
 """
 from PIL import Image
 from typing import Dict
@@ -50,12 +50,12 @@ def main():
         st.sidebar.header('Document Content')
         doc_nav = st.sidebar.radio(
             "Section",
-            ('Best Seam', 'Blending', 'Illumination Compensation')
+            ('Illumination Compensation', 'Best Seam', 'Blending')
         )
         if doc_nav == 'Best Seam':
             st.markdown(doc.best_seam)
             graph_cut = Image.open("doc/img/graphcut.png")
-            st.image(graph_cut, use_column_width=True, caption='Graph Cut')
+            st.image(graph_cut, use_column_width=True, caption='Best Seam')
         elif doc_nav == 'Blending':
             st.markdown(doc.direct_blending)
             normal = Image.open("doc/img/normal.png")
@@ -74,7 +74,7 @@ def main():
             st.image(laplacian, use_column_width=True, caption='Laplacian Blending')
             st.markdown(doc.laplacian_blending3)
             laplacian_graph_cut = Image.open("doc/img/laplacianWithGraphCut.png")
-            st.image(laplacian_graph_cut, use_column_width=True, caption='Laplacian Blending with Graph Cut')
+            st.image(laplacian_graph_cut, use_column_width=True, caption='Laplacian Blending with Best Seam')
         else:
             st.markdown(doc.illumination_compensation)
             retinex = Image.open('doc/img/retinex.png')
@@ -115,22 +115,25 @@ def main():
                 st.sidebar.header("Stitching Parameters")
                 show_matching_result = st.sidebar.checkbox("Show matching results")
                 show_stitching_progresses = st.sidebar.checkbox('Show stitching progresses')
-                show_masks = st.sidebar.checkbox('Show masks (only available for laplacian blender with graph cut)')
+                show_masks = st.sidebar.checkbox('Show best seam (laplacian blender with best seam)')
                 feature = st.sidebar.selectbox(
                     "Select a type of features used for images matching",
                     ('SIFT', 'SURF', 'ORB', 'BRISK', 'AKAZE')
                 )
                 blender = st.sidebar.selectbox(
                     "Select a blend method",
-                    ('laplacian', 'laplacianWithGraphCut','average', 'middle', 'normal')
+                    ('laplacian', 'laplacianWithBestSeam','average', 'middle', 'normal')
                 )
                 light_compensation = st.sidebar.selectbox(
                     "Select a light compensation method",
                     ('grey', 'hist', 'MSRCR', 'AWB')
                 )
                 s = Stitcher.Stitch([cv2_read_img(key) for key in static_store.keys()])
-                s.leftshift(feature=feature, blender=blender, light=light_compensation)
-                s.rightshift(feature=feature, blender=blender, light=light_compensation)
+                blender_method = blender
+                if blender == 'laplacianWithBestSeam':
+                    blender_method = 'laplacianWithGraphCut'
+                s.leftshift(feature=feature, blender=blender_method, light=light_compensation)
+                s.rightshift(feature=feature, blender=blender_method, light=light_compensation)
                 matches = []
                 progresses = []
                 masks = []
@@ -147,9 +150,9 @@ def main():
                     st.image(progresses, use_column_width=True, channels='BGR',
                              caption=[str(i) for i in range(len(progresses))])
                 for image in s.masks:
-                    masks.append(image)
+                    masks.append(np.uint8(np.clip(image, 0, 255)))
                 if masks and show_masks:
-                    st.header("Masks")
+                    st.header("Best Seam")
                     st.image(masks, use_column_width=True, channels='BGR')
                 st.header("Stitching Result")
                 st.image(s.leftImage, use_column_width=True, channels='BGR', caption='Stitch Result')
@@ -184,7 +187,7 @@ def main():
                 )
                 blend_type = st.sidebar.selectbox(
                     "Select a blend method",
-                    ('multiband', 'feature')
+                    ('multiband', 'feather')
                 )
                 blend_strength = st.sidebar.slider(
                     "Blending strength", 0, 100, 5
